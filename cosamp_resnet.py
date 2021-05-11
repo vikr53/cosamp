@@ -45,7 +45,7 @@ num_epoch = 70
 alpha = 0.01 # learning rate
 
 batch_size=8
-k = 600
+k = 6000
 
 # Loss metric
 train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
@@ -118,7 +118,7 @@ if rank == 0:
     
     # Set compressibility writer
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    c_log_dir = 'logs/compress/global_'+str(k)+'_'+str(rank)+'/' + current_time
+    c_log_dir = 'logs/fbk/cosamp_'+str(k)+'_'+str(rank)+'/' + current_time
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
 
     # Augment d
@@ -145,7 +145,7 @@ if rank == 0:
                 y = comm.recv(source=n, tag=11)
                 z = np.array(z) + np.array(y)
 
-            z = (1.0/N) * z
+            z = alpha * (1.0/N) * z
 
             if step == 0 and epoch == 0:
                 # init r
@@ -177,7 +177,7 @@ if rank == 0:
                 comm.send(grad_tx, dest=n, tag=11)
 
         with c_summary_writer.as_default():
-          tf.summary.scalar("compressibility", rel_err.result(), step=epoch)
+          tf.summary.scalar("rel err", rel_err.result(), step=epoch)
           rel_err.reset_states()
             
 else:
@@ -217,8 +217,8 @@ else:
 
     # Set up summary writers
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/no_fbk/global_topk'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
-    test_log_dir = 'logs/no_fbk/global_topk'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
+    train_log_dir = 'logs/fbk/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
+    test_log_dir = 'logs/fbk/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
     test_summary_writer = tf.summary.create_file_writer(test_log_dir)
 
@@ -264,7 +264,7 @@ else:
             
             ## WORK AROUND: Receive and apply gradients
             grad_rx = comm.recv(source=0, tag=11)
-            #optimizer.learning_rate = 1
+            optimizer.learning_rate = 1 # alpha already applied server-side
             #optimizer.momentum = 0.9
             optimizer.apply_gradients(zip(grad_rx, model.trainable_weights))
 
