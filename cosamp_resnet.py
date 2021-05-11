@@ -47,6 +47,8 @@ alpha = 0.01 # learning rate
 batch_size=8
 k = 6000
 
+fbk_status = 'fbk'
+
 # Loss metric
 train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
 val_loss = tf.keras.metrics.Mean('val_loss', dtype=tf.float32)
@@ -118,7 +120,7 @@ if rank == 0:
     
     # Set compressibility writer
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    c_log_dir = 'logs/fbk/cosamp_'+str(k)+'_'+str(rank)+'/' + current_time
+    c_log_dir = 'logs/'+fbk_status+'/cosamp_k'+str(k)+'_'+str(rank)+'/' + current_time
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
 
     # Augment d
@@ -151,12 +153,13 @@ if rank == 0:
                 # init r
                 r = np.zeros(z.shape)
             
-            z += r
+            if fbk_status == 'fbk':
+                z += r
 
             # Recover K-sparse signal
             g_rec = FIHT.FastIHT_WHT(z, k, Q, d_aug, Phi_row_idx, top_k_func=1)[0:d]
-            g_rec_wht = np.concatenate((g_rec, np.zeros(d_aug-d))) / np.sqrt(Q)
-            
+
+            g_rec_wht = np.concatenate((g_rec, np.zeros(d_aug-d))) / np.sqrt(Q)            
             ffht.fht(g_rec_wht)
             z_rec = g_rec_wht[Phi_row_idx]
 
@@ -169,7 +172,7 @@ if rank == 0:
             n_prev = 0
             for i in range(len(shapes)):
                 n = n_prev + tf.math.reduce_prod(shapes[i])
-                grad_tx.append(tf.cast(tf.reshape(g_rec_wht[n_prev:n], shapes[i]), tf.float32))
+                grad_tx.append(tf.cast(tf.reshape(g_rec[n_prev:n], shapes[i]), tf.float32))
                 n_prev = n
                 
             # Send g_rec_wht back to clients
@@ -217,8 +220,8 @@ else:
 
     # Set up summary writers
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/fbk/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
-    test_log_dir = 'logs/fbk/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
+    train_log_dir = 'logs/'+fbk_status+'/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
+    test_log_dir = 'logs/'+fbk_status+'/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
     test_summary_writer = tf.summary.create_file_writer(test_log_dir)
 
