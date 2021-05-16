@@ -142,13 +142,15 @@ optimizer = tf.keras.optimizers.SGD()
 
 ## EXPERIMENT CONFIG ###########################
 num_epoch = 150
-alpha = 0.1 # learning rate
+alpha = 0.01 # learning rate
 
-batch_size=8
+batch_size=32
 k = 6000
 
 base_model = 'flnet'
 fbk_status = 'fbk'
+num_groups_per_node = 1
+sample = 'non_iid'
 ################################################
 
 # Loss metric
@@ -163,9 +165,11 @@ val_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('val_accuracy')
 rel_err = tf.keras.metrics.Mean('rel_err', dtype=tf.float32)
 
 if rank == 0:
-
-    d_xtrain, d_ytrain = noniid_sampler("cifar10",0)
     
+    if sample == "non_iid":
+        d_xtrain, d_ytrain = noniid_sampler("cifar10",1, num_groups_per_node)
+    else:
+        d_xtrain, d_ytrain = iid_sampler("cifar10",0)
     # Instantiate model
     inputs = keras.Input(shape=(32, 32, 3))
     x = layers.Conv2D(32, 3, activation='relu')(inputs)
@@ -190,7 +194,7 @@ if rank == 0:
     
     # Set compressibility writer
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    c_log_dir = 'logs/'+base_model+'/'+fbk_status+'/cosamp_k'+str(k)+'_'+str(rank)+'/' + current_time
+    c_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/cosamp_k'+str(k)+'_'+str(rank)+'_alpha' + str(alpha) + '/' + current_time + '/compress'
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
 
     # Augment d
@@ -290,8 +294,8 @@ else:
 
     # Set up summary writers
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/'+base_model+'/'+fbk_status+'/testcosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
-    test_log_dir = 'logs/'+base_model+'/'+fbk_status+'/testcosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
+    train_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/cosamp_k'+str(k)+"_"+str(rank)+'_alpha'+str(alpha)+'/' + current_time + '/train'
+    test_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/cosamp_k'+str(k)+"_"+str(rank)+'_alpha_'+str(alpha)+'/' + current_time + '/test'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
     test_summary_writer = tf.summary.create_file_writer(test_log_dir)
 
