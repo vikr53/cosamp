@@ -64,26 +64,27 @@ def iid_sampler(dataset):
 
   return d_xtrain, d_ytrain
 
-def noniid_sampler(dataset, option=0):
+def noniid_sampler(dataset, option=0, num_groups_per_node=2):
   # Load data
+  num_classes = 0
   if dataset == "cifar10":
     (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+    num_classes = 10
   else:
     print("Invalid Dataset")
     sys.exit()
 
   train_size = x_train.shape[0] # number of training samples
   test_size = x_test.shape[0] # number of testing samples
-  
-  if option == 0:
-    # Each node gets 1 class
-    group = {i: [] for i in range(train_size)}
-    for i in range(train_size):
-      group[y_train[i][0]].append(x_train[i])
 
-    d_xtrain = np.array((len(group[0]),))
-    d_ytrain = np.array((len(group[0]),))
-    
+  # Each node gets 1 class
+  group = {i: [] for i in range(num_classes)}
+  for i in range(train_size):
+    group[y_train[i][0]].append(x_train[i])
+
+  d_xtrain = np.array((len(group[0]),))
+  d_ytrain = np.array((len(group[0]),))
+  if option == 0:
     # Send groups to each node
     for n in range(1, N+1):
       x_train_local = np.array(group[n-1])
@@ -93,13 +94,39 @@ def noniid_sampler(dataset, option=0):
         d_xtrain = x_train_local
         d_ytrain = y_train_local
 
+      print("x_train", x_train_local.shape)
+      print("y_train",y_train_local.shape)
+
       comm.send([x_train_local, y_train_local, x_test, y_test], dest=n, tag=11)
 
     return d_xtrain, d_ytrain
+  elif option == 1:
+    # Send num_groups_per_node randomly chosen groups to each node
+    for n in range(1, N+1):
+      groups_n = np.random.randint(0, len(group), num_groups_per_node)
+      print("groups_n", groups_n)
+      print("group", len(group))
+      x_train_local, y_train_local = [], []
+      for i in range(num_groups_per_node):
+        x_train_local += group[groups_n[i]]
+        y_train_local += [groups_n[i] for _ in range(len(group[groups_n[i]]))]
+        
+      x_train_local, y_train_local = np.array(x_train_local), np.array(y_train_local)
+      print("x_train", x_train_local.shape)
+      print("y_train",y_train_local.shape)
+      if n==1:
+        d_xtrain = x_train_local
+        d_ytrain = y_train_local
+
+      comm.send([x_train_local, y_train_local, x_test, y_test], dest=n, tag=11)
+
+    return d_xtrain, d_ytrain
+  
   else:
     print("Invalid non-iid sampler option")
     sys.exit()
-      
+  
+    
 
 comm = MPI.COMM_WORLD
 nproc = comm.Get_size()
@@ -115,13 +142,13 @@ optimizer = tf.keras.optimizers.SGD()
 
 ## EXPERIMENT CONFIG ###########################
 num_epoch = 150
-alpha = 0.01 # learning rate
+alpha = 0.1 # learning rate
 
 batch_size=8
-k = 600
+k = 6000
 
 base_model = 'flnet'
-fbk_status = 'no_fbk'
+fbk_status = 'fbk'
 ################################################
 
 # Loss metric
@@ -137,7 +164,7 @@ rel_err = tf.keras.metrics.Mean('rel_err', dtype=tf.float32)
 
 if rank == 0:
 
-    d_xtrain, d_ytrain = noniid_sampler("cifar10")
+    d_xtrain, d_ytrain = noniid_sampler("cifar10",0)
     
     # Instantiate model
     inputs = keras.Input(shape=(32, 32, 3))
