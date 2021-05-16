@@ -41,13 +41,17 @@ x_test_local = np.zeros((1,))
 y_test_local = np.zeros((1,))   
 
 optimizer = tf.keras.optimizers.SGD()
-num_epoch = 70
+
+## EXPERIMENT CONFIG ###########################
+num_epoch = 150
 alpha = 0.01 # learning rate
 
 batch_size=8
-k = 6000
+k = 600
 
-fbk_status = 'fbk'
+base_model = 'flnet'
+fbk_status = 'no_fbk'
+################################################
 
 # Loss metric
 train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
@@ -120,7 +124,7 @@ if rank == 0:
     
     # Set compressibility writer
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    c_log_dir = 'logs/'+fbk_status+'/cosamp_k'+str(k)+'_'+str(rank)+'/' + current_time
+    c_log_dir = 'logs/'+base_model+'/'+fbk_status+'/cosamp_k'+str(k)+'_'+str(rank)+'/' + current_time
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
 
     # Augment d
@@ -220,8 +224,8 @@ else:
 
     # Set up summary writers
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/'+fbk_status+'/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
-    test_log_dir = 'logs/'+fbk_status+'/cosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
+    train_log_dir = 'logs/'+base_model+'/'+fbk_status+'/testcosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/train'
+    test_log_dir = 'logs/'+base_model+'/'+fbk_status+'/testcosamp_k'+str(k)+"_"+str(rank)+'/' + current_time + '/test'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
     test_summary_writer = tf.summary.create_file_writer(test_log_dir)
 
