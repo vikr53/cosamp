@@ -142,7 +142,7 @@ optimizer = tf.keras.optimizers.SGD()
 
 ## EXPERIMENT CONFIG ###########################
 num_epoch = 150
-alpha = 0.01 # learning rate
+alpha = 0.1 # learning rate
 
 batch_size=32
 k = 6000
@@ -150,7 +150,7 @@ k = 6000
 base_model = 'flnet'
 fbk_status = 'fbk'
 num_groups_per_node = 1
-sample = 'non_iid'
+sample = 'iid'
 ################################################
 
 # Loss metric
@@ -169,7 +169,7 @@ if rank == 0:
     if sample == "non_iid":
         d_xtrain, d_ytrain = noniid_sampler("cifar10",1, num_groups_per_node)
     else:
-        d_xtrain, d_ytrain = iid_sampler("cifar10",0)
+        d_xtrain, d_ytrain = iid_sampler("cifar10")
     # Instantiate model
     inputs = keras.Input(shape=(32, 32, 3))
     x = layers.Conv2D(32, 3, activation='relu')(inputs)
