@@ -12,6 +12,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import pandas as pd
+import sys
 
 # Create a data augmentation stage with horizontal flipping, rotations, zooms
 data_augmentation = keras.Sequential(
@@ -29,6 +30,76 @@ def res_net_block(input_data, filters, conv_size):
   x = layers.Add()([x, input_data])
   x = layers.Activation('relu')(x)
   return x
+
+def iid_sampler(dataset):
+  # Load data
+  if dataset == "cifar10":
+    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+  else:
+    print("Invalid Dataset")
+    sys.exit()
+    
+  # Normalize input images
+  x_train, x_test = tf.cast(x_train, tf.float32),  tf.cast(x_test, tf.float32)
+
+  train_size = x_train.shape[0] # number of training samples
+  test_size = x_test.shape[0] # number of testing samples
+
+  # Partition training data
+  split_train_idx = np.random.choice(train_size, (N, math.floor(train_size/N)), replace=False)
+
+  d_xtrain = np.array((len(split_train_idx[0]),))
+  d_ytrain = np.array((len(split_train_idx[0]),))
+    
+  # Communicate data partition (point-to-point)
+  for n in range(1,N+1):
+    x_train_local = np.array([x_train[idx] for idx in split_train_idx[n-1]])
+    y_train_local = np.array([y_train[idx] for idx in split_train_idx[n-1]])
+        
+    if n == 1:
+      d_xtrain = x_train_local
+      d_ytrain = y_train_local
+
+    comm.send([x_train_local, y_train_local, x_test, y_test], dest=n, tag=11)
+
+  return d_xtrain, d_ytrain
+
+def noniid_sampler(dataset, option=0):
+  # Load data
+  if dataset == "cifar10":
+    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+  else:
+    print("Invalid Dataset")
+    sys.exit()
+
+  train_size = x_train.shape[0] # number of training samples
+  test_size = x_test.shape[0] # number of testing samples
+  
+  if option == 0:
+    # Each node gets 1 class
+    group = {i: [] for i in range(train_size)}
+    for i in range(train_size):
+      group[y_train[i][0]].append(x_train[i])
+
+    d_xtrain = np.array((len(group[0]),))
+    d_ytrain = np.array((len(group[0]),))
+    
+    # Send groups to each node
+    for n in range(1, N+1):
+      x_train_local = np.array(group[n-1])
+      y_train_local = (n-1)*np.ones((x_train_local.shape[0],))
+      
+      if n==1:
+        d_xtrain = x_train_local
+        d_ytrain = y_train_local
+
+      comm.send([x_train_local, y_train_local, x_test, y_test], dest=n, tag=11)
+
+    return d_xtrain, d_ytrain
+  else:
+    print("Invalid non-iid sampler option")
+    sys.exit()
+      
 
 comm = MPI.COMM_WORLD
 nproc = comm.Get_size()
@@ -65,40 +136,8 @@ val_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('val_accuracy')
 rel_err = tf.keras.metrics.Mean('rel_err', dtype=tf.float32)
 
 if rank == 0:
-    # Load data
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
-    
-    # Normalize input images
-    x_train, x_test = tf.cast(x_train, tf.float32),  tf.cast(x_test, tf.float32)
 
-    train_size = x_train.shape[0] # number of training samples
-    test_size = x_test.shape[0] # number of testing samples
-
-    # Partition training data
-    split_train_idx = np.random.choice(train_size, (N, math.floor(train_size/N)), replace=False)
-    
-    # Similarly, partition test data
-    # I. Split the validation dataset
-    # split_test_idx = np.random.choice(test_size, (N, math.floor(test_size/N)), replace=False)
-
-    d_xtrain = np.array((len(split_train_idx[0]),))
-    d_ytrain = np.array((len(split_train_idx[0]),))
-    
-    # Communicate data partition (point-to-point)
-    for n in range(1,N+1):
-        x_train_local = np.array([x_train[idx] for idx in split_train_idx[n-1]])
-        y_train_local = np.array([y_train[idx] for idx in split_train_idx[n-1]])
-        
-        # II. Don't split validation
-        #x_test_local = np.array([x_test[idx] for idx in split_test_idx[n-1]])
-        #y_test_local = np.array([y_test[idx] for idx in split_test_idx[n-1]])
-
-        if n == 1:
-            d_xtrain = x_train_local
-            d_ytrain = y_train_local
-
-        # comm.send([x_train_local, y_train_local, x_test_local, y_test_local], dest=n, tag=11)
-        comm.send([x_train_local, y_train_local, x_test, y_test], dest=n, tag=11)
+    d_xtrain, d_ytrain = noniid_sampler("cifar10")
     
     # Instantiate model
     inputs = keras.Input(shape=(32, 32, 3))
