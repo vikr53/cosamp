@@ -108,8 +108,8 @@ def noniid_sampler(dataset, option=0, num_groups_per_node=2):
       print("group", len(group))
       x_train_local, y_train_local = [], []
       for i in range(num_groups_per_node):
-        x_train_local += group[groups_n[i]]
-        y_train_local += [groups_n[i] for _ in range(len(group[groups_n[i]]))]
+        x_train_local += np.random.choice(group[groups_n[i]], len(group[groups_n[i]])/num_groups_per_node)
+        y_train_local += [groups_n[i] for _ in range(len(group[groups_n[i]])/num_groups_per_node)]
         
       x_train_local, y_train_local = np.array(x_train_local), np.array(y_train_local)
       print("x_train", x_train_local.shape)
@@ -142,9 +142,9 @@ optimizer = tf.keras.optimizers.SGD()
 
 ## EXPERIMENT CONFIG ###########################
 num_epoch = 150
-alpha = 0.1 # learning rate
+alpha = 0.01 # learning rate
 
-batch_size=32
+batch_size=8
 k = 6000
 
 base_model = 'flnet'
