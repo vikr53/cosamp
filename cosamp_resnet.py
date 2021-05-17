@@ -150,7 +150,7 @@ k = 6000
 base_model = 'flnet'
 fbk_status = 'fbk'
 num_groups_per_node = 1
-sample = 'iid'
+sample = 'non_iid'
 ################################################
 
 # Loss metric
