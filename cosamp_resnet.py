@@ -142,15 +142,15 @@ optimizer = tf.keras.optimizers.SGD()
 
 ## EXPERIMENT CONFIG ###########################
 num_epoch = 150
-alpha = 0.1 # learning rate
+alpha = 0.01 # learning rate
 
-batch_size=32
+batch_size=8
 k = 6000
 
 base_model = 'flnet'
 fbk_status = 'fbk'
 num_groups_per_node = 1
-sample = 'iid'
+sample = 'non_iid'
 ################################################
 
 # Loss metric
