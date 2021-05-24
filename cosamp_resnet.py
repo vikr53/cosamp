@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 import pandas as pd
 import sys
 from models import *
-from sampler import 
+from sampler import *
 
 # Create a data augmentation stage with horizontal flipping, rotations, zooms
 data_augmentation = keras.Sequential(
@@ -76,17 +76,13 @@ rel_err = tf.keras.metrics.Mean('rel_err', dtype=tf.float32)
 if rank == 0:
     
     if sample == "non_iid":
-        sampler = Sampler(False, N, "cifar10")
+        sampler = Sampler(False, N, "cifar10", comm)
     else:
-        sampler = Sampler(True, N, "cifar10")
+        sampler = Sampler(True, N, "cifar10", comm)
         sampler.sample_iid()
     
     # Instantiate Model (ResNet9)
     model = resnet_init()
-
-    # dummy dataset to get number of steps
-    dset = tf.data.Dataset.from_tensor_slices((sampler.x_train, sampler.y_train))
-    dset = dset.shuffle(buffer_size=60000).batch(batch_size)
     
     # Set compressibility writer
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -111,6 +107,11 @@ if rank == 0:
     for epoch in range(num_epoch):
         if sample == "non_iid":
             sampler.sample_noniid()
+
+        # dummy dataset to get number of steps
+        dset = tf.data.Dataset.from_tensor_slices((sampler.x_train_local, sampler.y_train_local))
+        dset = dset.shuffle(buffer_size=60000).batch(batch_size)
+         
         for step, (dummy_x, dummy_y) in enumerate(dset):
             # Aggregation
             # obtain y from each node (assuming at least one other node)
@@ -207,7 +208,7 @@ else:
             x_train_local = tf.keras.applications.resnet.preprocess_input(x_train_local)
 
             train_dataset = tf.data.Dataset.from_tensor_slices((x_train_local, y_train_local))
-            train_dataset = train_dataset.shuffle(buffer_size=60000).batch(batch_size)
+            train_dataset = train_dataset.batch(batch_size)
 
             val_dataset = tf.data.Dataset.from_tensor_slices((x_test_local, y_test_local))
             val_dataset = val_dataset.shuffle(buffer_size=60000).batch(batch_size)
