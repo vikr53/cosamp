@@ -48,7 +48,7 @@ alpha = 0.01 # learning rate
 
 batch_size= 1
 
-k=100000
+k=30000
 comp = 2
 model_size = 668426
 r = 10
@@ -92,7 +92,12 @@ if rank == 0:
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
     
     d = np.sum([np.prod(v.get_shape()) for v in model.trainable_weights])
-    
+
+    # Send sketch class to clients
+    S = CSVec(d, c, r)
+    for n in range(1,N+1):
+        comm.send([S.buckets, S.signs], dest=n, tag=11)
+        
     # Residual sketch
     S_e = CSVec(d, c, r)
     for epoch in range(num_epoch):
@@ -112,7 +117,6 @@ if rank == 0:
                 table_rx = np.array(table_rx) + np.array(y)
 
             table_rx = alpha * (1.0/N) * table_rx
-            S = CSVec(d, c, r)
             S.table = torch.tensor(table_rx)
             
             S_e = S + S_e
@@ -172,6 +176,11 @@ else:
         test_summary_writer = tf.summary.create_file_writer(test_log_dir)
         sparse_summary_writer = tf.summary.create_file_writer(sparse_log_dir)
 
+    # Receive sketch class
+    S_client = CSVec(d, c, r, doInitialize=False)
+    S_client.buckets, S_client.signs = comm.recv(source=0, tag=11)
+    S_client.table = torch.zeros((r,c))
+    
     for epoch in range(num_epoch):
         print(f"\nStart of Training Epoch {epoch}")
         if sample == "non_iid2":
@@ -207,11 +216,11 @@ else:
                 np_concat_grads = concat_grads.numpy()
                 torch_concat_grads = torch.tensor(np_concat_grads)
 
-                S_client = CSVec(d, c, r)
+                S_client.table = torch.zeros((r,c))
                 S_client.accumulateVec(torch_concat_grads)
                 grad_tx = S_client.table
                 
-                # Send y to server
+                # Send table to server
                 comm.send(grad_tx, dest=0, tag=11)
 
             ## NOT WORKING: Receive and set weights from server
