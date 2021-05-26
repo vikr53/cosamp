@@ -1,5 +1,3 @@
-import FIHT
-import ffht
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow import keras
@@ -15,6 +13,7 @@ import pandas as pd
 import sys
 from models import *
 from sampler import *
+from csvec import CSVec
 
 # Create a data augmentation stage with horizontal flipping, rotations, zooms
 data_augmentation = keras.Sequential(
@@ -52,9 +51,9 @@ alpha = 0.01 # learning rate
 batch_size= 1
 
 comp = 2
-# model_size = 4912010
 model_size = 668426
-k = int(model_size/(12*comp))
+r = 10
+c = int(model_size/(r*comp))
 
 base_model = 'FLNet'
 fbk_status = 'fbk'
@@ -92,23 +91,11 @@ if rank == 0:
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     c_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+'_'+str(rank)+'_alpha' + str(alpha) + '/' + current_time + '/sparse_pt'
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
-
-    # Augment d
+    
     d = np.sum([np.prod(v.get_shape()) for v in model.trainable_weights])
-    print("d", d)
-    d_aug = 2 ** np.ceil(np.log2(d)).astype('int32')
-
-    # Generate row indices of \Phi
-    Q = k * 12
-    rng = np.random.default_rng(2)
-    Phi_row_idx = rng.choice(d_aug, Q, replace=False)
-
-    # Send row indices to clients
-    for n in range(1, N+1):
-        comm.send(Phi_row_idx, dest=n, tag=11)
-
-    r = np.zeros((0,))
-    e = np.zeros((0,))
+    
+    # Residual sketch
+    S_e = CSVec(d, c, r)
     for epoch in range(num_epoch):
         if sample == "non_iid2":
             sampler.sample_noniid(2, comm)
@@ -120,66 +107,24 @@ if rank == 0:
         for step, (dummy_x, dummy_y) in enumerate(dset):
             # Aggregation
             # obtain y from each node (assuming at least one other node)
-            z = comm.recv(source=1, tag=11)
-            grad = comm.recv(source=1, tag=11)
+            table_rx = comm.recv(source=1, tag=11)
             for n in range(2,N+1):
                 y = comm.recv(source=n, tag=11)
-                grad_n = comm.recv(source=n, tag=11)
-                z = np.array(z) + np.array(y)
-                grad = np.array(grad) + np.array(grad_n)
+                table_rx = np.array(table_rx) + np.array(y)
 
-            # Ramp up alpha
-            if epoch <= 5:
-              alpha_t = alpha + epoch*(0.3-alpha)/5
-            elif epoch > 5 and epoch <= 10:
-              alpha_t = 0.3 - (epoch-5)*(0.3-alpha)/5
-            else:
-              alpha_t = alpha
-
-            z = alpha * (1.0/N) * z
-            grad = alpha * (1.0/N) * grad
-
-            if step == 0 and epoch == 0:
-                # init r
-                r = np.zeros(z.shape)
-                e = np.zeros(grad.shape)
+            table_rx = alpha * (1.0/N) * table_rx
+            S = CSVec(d, c, r)
+            S.table = torch.tensor(table_rx)
             
-            if fbk_status == 'fbk':
-                z += r
-                grad += e
+            S_e = S + S_e
+            unsketched = S_e.unSketch(k=k)
             
-            # Compute sparsity of grad
-            sparsity_grad = (np.linalg.norm(grad, ord=1)**2)/(np.linalg.norm(grad, ord=2)**2 * grad.shape[0])
-            sp_p(sparsity_grad)
-
-            # Recover K-sparse signal
-            g_rec = FIHT.FastIHT_WHT(z, k, Q, d_aug, Phi_row_idx, top_k_func=1)[0:d]
+            S_e = S_e - S.accumulateVec(unsketched)
             
-            e = grad - g_rec
-
-            g_rec_wht = np.concatenate((g_rec, np.zeros(d_aug-d))) / np.sqrt(Q)            
-            ffht.fht(g_rec_wht)
-            z_rec = g_rec_wht[Phi_row_idx]
-
-            r = z - z_rec
-
-            # Unflatten g_rec_wht
-            shapes = [model.trainable_weights[i].shape for i in range(len(model.trainable_weights))]
-
-            grad_tx = []
-            n_prev = 0
-            for i in range(len(shapes)):
-                n = n_prev + tf.math.reduce_prod(shapes[i])
-                grad_tx.append(tf.cast(tf.reshape(g_rec[n_prev:n], shapes[i]), tf.float32))
-                n_prev = n
-                
-            # Send g_rec_wht back to clients
+            grad_tx = unsketched
+            # Send unsketched back to clients
             for n in range(1, N+1):
                 comm.send(grad_tx, dest=n, tag=11)
-
-        with c_summary_writer.as_default():
-          tf.summary.scalar("Sparsity(p(t))", sp_p.result(), step=epoch)
-          sp_p.reset_states()
             
 else:
     if sample == "iid" or sample == "non_iid0":
@@ -211,10 +156,6 @@ else:
         train_summary_writer = tf.summary.create_file_writer(train_log_dir)
         test_summary_writer = tf.summary.create_file_writer(test_log_dir)
         sparse_summary_writer = tf.summary.create_file_writer(sparse_log_dir)
-
-    # Receive \Phi row indices from server
-    Phi_row_idx = comm.recv(source=0, tag=11)
-    Q = k * 12
 
     for epoch in range(num_epoch):
         print(f"\nStart of Training Epoch {epoch}")
@@ -248,22 +189,14 @@ else:
                     flattened = tf.reshape(grad[i], -1) #flatten
                     concat_grads = tf.concat((concat_grads, flattened), 0)
                 
-                # Compute sparsity metric
-                s = (tf.norm(concat_grads, ord=1)**2)/(tf.norm(concat_grads, ord=2)**2 * concat_grads.shape[0])
-                sparsity(s)
+                np_concat_grads = concat_grads.numpy()
+                torch_concat_grads = torch.tensor(np_concat_grads)
 
-                # Compute y (WHT)
-                # Augment d
-                d = concat_grads.shape[0]
-                d_aug = 2 ** np.ceil(np.log2(d)).astype('int32')
-                
-                g_wht = np.concatenate((concat_grads, np.zeros(d_aug-d))) / np.sqrt(Q)
-                ffht.fht(g_wht)
-                y = g_wht[Phi_row_idx]
+                S_client = CSVec(d, c, r)
+                sketched = S_client.accumulateVec(torch_concat_grads).table
                 
                 # Send y to server
-                comm.send(y, dest=0, tag=11)
-                comm.send(concat_grads, dest=0, tag=11)
+                comm.send(sketched, dest=0, tag=11)
 
             ## NOT WORKING: Receive and set weights from server
             #weights = comm.recv(source=0, tag=11)

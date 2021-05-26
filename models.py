@@ -10,6 +10,15 @@ from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Dropou
 
 from os import path
 
+def res_net_block(input_data, filters, conv_size):
+  x = layers.Conv2D(filters, conv_size, activation='relu', padding='same')(input_data)
+  x = layers.BatchNormalization()(x)
+  x = layers.Conv2D(filters, conv_size, activation=None, padding='same')(x)
+  x = layers.BatchNormalization()(x)
+  x = layers.Add()([x, input_data])
+  x = layers.Activation('relu')(x)
+  return x
+
 # Inherit Layer, establish resnet18 and 34 convolutional layer modules
 class CellBlock(layers.Layer):
     def __init__(self, filter_num, stride=1):
@@ -114,11 +123,14 @@ def flnet_init():
     
     return model
 
-def resnet_init():
-    model = build_ResNet('ResNet9', 10)
+def resnet_init(var):
+    model = build_ResNet(var, 10)
     model.build(input_shape=(None, 32, 32, 3))
     
-    chkpt = "./chkpts/init_resnet9.ckpt"
+    if var == "ResNet9":
+      chkpt = "./chkpts/init_resnet9.ckpt"
+    elif var == "ResNet18":
+      chkpt = "./chkpts/init_resnet18.ckpt"
     
     model.load_weights(chkpt)
     return model
