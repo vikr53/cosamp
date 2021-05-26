@@ -7,8 +7,6 @@ import math
 from mpi4py import MPI
 import datetime
 import torch
-import torchvision
-import torchvision.transforms as transforms
 import pandas as pd
 import sys
 from models import *
@@ -50,6 +48,7 @@ alpha = 0.01 # learning rate
 
 batch_size= 1
 
+k=100000
 comp = 2
 model_size = 668426
 r = 10
@@ -118,10 +117,24 @@ if rank == 0:
             
             S_e = S + S_e
             unsketched = S_e.unSketch(k=k)
+            np_unsketched = unsketched.numpy()
             
-            S_e = S_e - S.accumulateVec(unsketched)
+            S_un = CSVec(d, c, r)
+            S_un.accumulateVec(unsketched)
             
-            grad_tx = unsketched
+            S_e.table = S_e.table - S_un.table
+
+            # Rehape unsketched
+            print(unsketched.shape)
+            shapes = [model.trainable_weights[i].shape for i in range(len(model.trainable_weights))]
+
+            grad_tx = []
+            n_prev = 0
+            for i in range(len(shapes)):
+                n = n_prev + tf.math.reduce_prod(shapes[i])
+                grad_tx.append(tf.cast(tf.reshape(np_unsketched[n_prev:n], shapes[i]), tf.float32))
+                n_prev = n
+                
             # Send unsketched back to clients
             for n in range(1, N+1):
                 comm.send(grad_tx, dest=n, tag=11)
@@ -147,6 +160,8 @@ else:
         if "BatchNormalization" in layer.__class__.__name__:
             layer.trainable = True
 
+    d = np.sum([np.prod(v.get_shape()) for v in model.trainable_weights])
+    
     # Set up summary writers
     if rank == 2:
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -193,10 +208,11 @@ else:
                 torch_concat_grads = torch.tensor(np_concat_grads)
 
                 S_client = CSVec(d, c, r)
-                sketched = S_client.accumulateVec(torch_concat_grads).table
+                S_client.accumulateVec(torch_concat_grads)
+                grad_tx = S_client.table
                 
                 # Send y to server
-                comm.send(sketched, dest=0, tag=11)
+                comm.send(grad_tx, dest=0, tag=11)
 
             ## NOT WORKING: Receive and set weights from server
             #weights = comm.recv(source=0, tag=11)
