@@ -57,7 +57,7 @@ class Sampler:
     def sample_iid(self, comm):
         ##### IID #####
         # Partition training data
-        split_train_idx = np.random.choice(self.train_size, (N, math.floor(self.train_size/N)), replace=False)
+        split_train_idx = np.random.choice(self.train_size, (self.N, math.floor(self.train_size/self.N)), replace=False)
 
         # Communicate data partition (point-to-point)
         for n in range(1, self.N+1):

@@ -46,18 +46,18 @@ optimizer = tf.keras.optimizers.SGD()
 num_epoch = 70
 alpha = 0.01 # learning rate
 
-batch_size= 1
+batch_size=1
 
 k=30000
-comp = 2
+comp = 0.9
 model_size = 668426
-r = 10
-c = int(model_size/(r*comp))
+r = 5
+c = int(comp*model_size/(r))
 
 base_model = 'FLNet'
 fbk_status = 'fbk'
 num_groups_per_node = 1
-sample = 'non_iid0'
+sample = 'non_iid2'
 ################################################
 
 # Loss metric
@@ -88,7 +88,7 @@ if rank == 0:
     
     # Set compressibility writer
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    c_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+'_'+str(rank)+'_alpha' + str(alpha) + '/' + current_time + '/sparse_pt'
+    c_log_dir = 'logs/'+base_model+'/'+sample+'/'+fbk_status+'/fetchsgd_k'+str(k)+"_r"+str(r)+"_c_"+str(c)+'_'+str(rank)+'_alpha' + str(alpha) + '/' + current_time + '/sparse_pt'
     c_summary_writer = tf.summary.create_file_writer(c_log_dir)
     
     d = np.sum([np.prod(v.get_shape()) for v in model.trainable_weights])
@@ -99,7 +99,10 @@ if rank == 0:
         comm.send([S.buckets, S.signs], dest=n, tag=11)
         
     # Residual sketch
-    S_e = CSVec(d, c, r)
+    S_e = CSVec(d, c, r, doInitialize=False)
+    S_e.buckets, S_e.signs = S.buckets, S.signs
+    S_e.table = torch.zeros((r,c))
+
     for epoch in range(num_epoch):
         if sample == "non_iid2":
             sampler.sample_noniid(2, comm)
@@ -115,6 +118,14 @@ if rank == 0:
             for n in range(2,N+1):
                 y = comm.recv(source=n, tag=11)
                 table_rx = np.array(table_rx) + np.array(y)
+            
+            # Ramp up alpha
+            if epoch <= 5:
+              alpha_t = alpha + epoch*(0.3-alpha)/5
+            elif epoch > 5 and epoch <= 10:
+              alpha_t = 0.3 - (epoch-5)*(0.3-alpha)/5
+            else:
+              alpha_t = alpha
 
             table_rx = alpha * (1.0/N) * table_rx
             S.table = torch.tensor(table_rx)
@@ -123,10 +134,10 @@ if rank == 0:
             unsketched = S_e.unSketch(k=k)
             np_unsketched = unsketched.numpy()
             
-            S_un = CSVec(d, c, r)
-            S_un.accumulateVec(unsketched)
+            S.zero()
+            S.accumulateVec(unsketched)
             
-            S_e.table = S_e.table - S_un.table
+            S_e.table = S_e.table - S.table
 
             # Rehape unsketched
             print(unsketched.shape)
@@ -169,9 +180,9 @@ else:
     # Set up summary writers
     if rank == 2:
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        train_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+"_"+str(rank)+'_alpha'+'/' + current_time + '/train'
-        test_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+"_"+str(rank)+'_alpha'+'/' + current_time + '/test'
-        sparse_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+"_"+str(rank)+'_alpha'+'/' + current_time + '/sparse'
+        train_log_dir = 'logs/'+base_model+'/'+sample+'/'+fbk_status+'/fetchsgd_k'+str(k)+"b_"+str(batch_size)+"_r"+str(r)+"_c"+str(c)+"_"+str(rank)+'_alpha'+str(alpha)+'/' + current_time + '/train'
+        test_log_dir = 'logs/'+base_model+'/'+sample+'/'+fbk_status+'/fetchsgd_k'+str(k)+"_r"+str(r)+"_c"+str(c)+"_"+str(rank)+'_alpha'+str(alpha)+'/' + current_time + '/test'
+        sparse_log_dir = 'logs/'+base_model+'/'+sample+'/'+fbk_status+'/fetchsgd_k'+str(k)+"_r"+str(r)+"_c"+str(c)+"_"+str(rank)+'_alpha'+str(alpha)+'/' + current_time + '/sparse'
         train_summary_writer = tf.summary.create_file_writer(train_log_dir)
         test_summary_writer = tf.summary.create_file_writer(test_log_dir)
         sparse_summary_writer = tf.summary.create_file_writer(sparse_log_dir)

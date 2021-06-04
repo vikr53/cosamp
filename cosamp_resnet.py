@@ -49,7 +49,7 @@ optimizer = tf.keras.optimizers.SGD()
 num_epoch = 70
 alpha = 0.01 # learning rate
 
-batch_size= 1
+batch_size= 8
 
 comp = 2
 # model_size = 4912010
@@ -59,7 +59,7 @@ k = int(model_size/(12*comp))
 base_model = 'FLNet'
 fbk_status = 'fbk'
 num_groups_per_node = 1
-sample = 'non_iid0'
+sample = 'iid'
 ################################################
 
 # Loss metric
@@ -205,7 +205,7 @@ else:
     # Set up summary writers
     if rank == 2:
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        train_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+"_"+str(rank)+'_alpha'+'/' + current_time + '/train'
+        train_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+'_b'+str(batch_size)+"_"+str(rank)+'_alpha'+'/' + current_time + '/train'
         test_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+"_"+str(rank)+'_alpha'+'/' + current_time + '/test'
         sparse_log_dir = 'logs/'+base_model+'/'+sample+str(num_groups_per_node)+'/'+fbk_status+'/fihtwht_k'+str(k)+"_"+str(rank)+'_alpha'+'/' + current_time + '/sparse'
         train_summary_writer = tf.summary.create_file_writer(train_log_dir)
